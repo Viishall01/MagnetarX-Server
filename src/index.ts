@@ -4,7 +4,7 @@ import authRoutes from "./routes/auth";
 import githubRoutes from "./routes/github";
 
 const app: Application = express();
-const PORT: number = parseInt(process.env.PORT || "5001", 10);
+const PORT: number = parseInt(process.env.PORT || "3001", 10);
 
 // Middleware
 app.use(
