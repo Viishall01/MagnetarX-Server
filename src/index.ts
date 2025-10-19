@@ -1,7 +1,13 @@
+import dotenv from "dotenv";
+
+// Load environment variables FIRST, before any other imports
+dotenv.config();
+
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth";
 import githubRoutes from "./routes/github";
+import { connectDatabase } from "./config/database";
 
 const app: Application = express();
 const PORT: number = parseInt(process.env.PORT || "3001", 10);
@@ -25,7 +31,19 @@ app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "OK", message: "Backend server is running" });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend server running on port ${PORT}`);
-  console.log(`📡 Health check: http://localhost:${PORT}/health`);
-});
+// Connect to MongoDB and start server
+const startServer = async () => {
+  try {
+    await connectDatabase();
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Backend server running on port ${PORT}`);
+      console.log(`📡 Health check: http://localhost:${PORT}/health`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();

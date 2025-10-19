@@ -48,3 +48,25 @@ export interface GitHubUser {
   company: string | null;
   twitter_username: string | null;
 }
+
+export interface StoredUser {
+  _id: string;
+  githubId: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string;
+  htmlUrl: string;
+  bio: string | null;
+  blog: string | null;
+  location: string | null;
+  company: string | null;
+  twitterUsername: string | null;
+  publicRepos: number;
+  publicGists: number;
+  followers: number;
+  following: number;
+  createdAt: Date;
+  updatedAt: Date;
+  lastSyncedAt: Date;
+}
