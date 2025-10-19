@@ -1,6 +1,6 @@
 import { NextAuthOptions } from "next-auth";
 import GitHubProvider from "next-auth/providers/github";
-import { CustomJWT, CustomSession } from "../types";
+import { CustomSession } from "../types";
 
 const authOptions: NextAuthOptions = {
   providers: [
@@ -14,25 +14,25 @@ const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account }) {
-      console.log("🔐 [JWT Callback] - Token received:", {
-        tokenKeys: Object.keys(token),
-        hasAccount: !!account,
-        accountType: account?.type,
-        accountProvider: account?.provider,
-        tokenSub: token.sub,
-        tokenEmail: token.email,
-        tokenName: token.name,
-      });
+      // console.log("🔐 [JWT Callback] - Token received:", {
+      //   tokenKeys: Object.keys(token),
+      //   hasAccount: !!account,
+      //   accountType: account?.type,
+      //   accountProvider: account?.provider,
+      //   tokenSub: token.sub,
+      //   tokenEmail: token.email,
+      //   tokenName: token.name,
+      // });
 
       if (account) {
-        console.log("🔑 [JWT Callback] - Account access token received:", {
-          accessToken: account.access_token
-            ? `${account.access_token.substring(0, 10)}...`
-            : "NO_TOKEN",
-          tokenType: account.token_type,
-          expiresAt: account.expires_at,
-          refreshToken: account.refresh_token ? "PRESENT" : "NOT_PRESENT",
-        });
+        // console.log("🔑 [JWT Callback] - Account access token received:", {
+        //   accessToken: account.access_token
+        //     ? `${account.access_token.substring(0, 10)}...`
+        //     : "NO_TOKEN",
+        //   tokenType: account.token_type,
+        //   expiresAt: account.expires_at,
+        //   refreshToken: account.refresh_token ? "PRESENT" : "NOT_PRESENT",
+        // });
 
         token.accessToken = account.access_token;
         console.log("✅ [JWT Callback] - Access token stored in JWT token");
