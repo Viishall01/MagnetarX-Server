@@ -7,6 +7,7 @@ import express, { Application, Request, Response } from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth";
 import githubRoutes from "./routes/github";
+import repoRoutes from "./routes/repo";
 import { connectDatabase } from "./config/database";
 
 const app: Application = express();
@@ -25,6 +26,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/github", githubRoutes);
+app.use("/api/repo", repoRoutes);
 
 // Health check endpoint
 app.get("/health", (req: Request, res: Response) => {

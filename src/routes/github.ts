@@ -12,12 +12,6 @@ router.get("/repos", async (req: Request, res: Response): Promise<void> => {
     const token =
       authHeader?.replace("Bearer ", "") || authHeader?.replace("token ", "");
 
-    console.log("👤 [GitHub API Route] - Request received:", {
-      hasAuthHeader: !!authHeader,
-      hasToken: !!token,
-      tokenPreview: token ? `${token.substring(0, 10)}...` : "NO_TOKEN",
-    });
-
     if (!token) {
       console.log("No access token found, returning 401");
       const errorResponse: ApiResponse = {
@@ -27,13 +21,6 @@ router.get("/repos", async (req: Request, res: Response): Promise<void> => {
       res.status(401).json(errorResponse);
       return;
     }
-
-    console.log(
-      "🔑 [GitHub API Route] - Access token found, calling GitHub API..."
-    );
-    console.log(
-      "📡 [GitHub API Route] - Making request to: https://api.github.com/user/repos"
-    );
 
     const githubRes = await fetch("https://api.github.com/user/repos", {
       headers: { Authorization: `token ${token}` },
