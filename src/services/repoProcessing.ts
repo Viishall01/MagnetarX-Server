@@ -1,11 +1,8 @@
-
 import axios from "axios";
 // import { QdrantClient } from "qdrant-client";
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { QdrantClient } from "@qdrant/js-client-rest";
-
-
 
 // Initialize Qdrant client
 const qdrantClient = new QdrantClient({
@@ -380,6 +377,15 @@ export class GitHubCodeProcessor {
       );
     } catch (error: any) {
       console.error("Error embedding and storing chunks:", error.message);
+
+      // Clean up: Delete the empty collection if data insertion failed
+      try {
+        await qdrantClient.deleteCollection(collectionName);
+        console.log(`🗑️ Cleaned up empty collection: ${collectionName}`);
+      } catch (deleteError: any) {
+        console.error("Failed to delete collection:", deleteError.message);
+      }
+
       throw error;
     }
   }
@@ -431,6 +437,18 @@ export class GitHubCodeProcessor {
       };
     } catch (error: any) {
       console.error("Repository processing failed:", error.message);
+
+      // Clean up any partial collections
+      try {
+        const collectionName = `${this.owner}_${this.repo}`
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, "_");
+        await qdrantClient.deleteCollection(collectionName);
+        console.log(`🗑️ Cleaned up failed collection: ${collectionName}`);
+      } catch (cleanupError: any) {
+        console.error("Failed to cleanup collection:", cleanupError.message);
+      }
+
       return {
         success: false,
         chunksProcessed: 0,

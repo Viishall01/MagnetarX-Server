@@ -1,7 +1,6 @@
 import { Request, Response, Router } from "express";
 import axios from "axios";
-import { GitHubCodeProcessor } from "@/services/repoProcessing";
-
+import { GitHubCodeProcessor } from "../services/repoProcessing";
 
 const router: Router = Router();
 
