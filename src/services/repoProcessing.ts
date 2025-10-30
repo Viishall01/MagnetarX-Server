@@ -1,8 +1,6 @@
-import axios from "axios";
-// import { QdrantClient } from "qdrant-client";
-import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { QdrantClient } from "@qdrant/js-client-rest";
+import { pipeline } from "@xenova/transformers";
 
 // Initialize Qdrant client
 const qdrantClient = new QdrantClient({
@@ -10,11 +8,42 @@ const qdrantClient = new QdrantClient({
   apiKey: process.env.QDRANT_API_KEY,
 });
 
-// Initialize Hugging Face embeddings
-const embeddings = new HuggingFaceInferenceEmbeddings({
-  apiKey: process.env.HUGGINGFACE_API_KEY,
-  model: "sentence-transformers/all-MiniLM-L6-v2", // Efficient embedding model
-});
+// Initialize embedding pipeline (cached globally)
+let embeddingPipeline: any = null;
+
+// ULTRA-FAST local embeddings using transformers.js
+const generateEmbeddings = async (texts: string[]): Promise<number[][]> => {
+  try {
+    console.log(`🚀 Generating local embeddings for ${texts.length} texts...`);
+
+    // Initialize pipeline if not already done
+    if (!embeddingPipeline) {
+      console.log(`📥 Loading embedding model...`);
+      embeddingPipeline = await pipeline(
+        "feature-extraction",
+        "Xenova/all-MiniLM-L6-v2"
+      );
+      console.log(`✅ Embedding model loaded`);
+    }
+
+    // Generate embeddings for all texts
+    const embeddings: number[][] = [];
+
+    for (const text of texts) {
+      const result = await embeddingPipeline(text, {
+        pooling: "mean",
+        normalize: true,
+      });
+      embeddings.push(Array.from(result.data));
+    }
+
+    console.log(`✅ Generated ${embeddings.length} embeddings locally`);
+    return embeddings;
+  } catch (error: any) {
+    console.error(`❌ Local embedding error: ${error.message}`);
+    throw new Error("Error while embedding locally" + error);
+  }
+};
 
 // Text splitter for code optimization
 const textSplitter = new RecursiveCharacterTextSplitter({
@@ -59,7 +88,7 @@ export class GitHubCodeProcessor {
   // Fetch repository contents recursively
   async fetchRepositoryContents(path: string = ""): Promise<GitHubFile[]> {
     try {
-      const response = await axios.get(
+      const response = await fetch(
         `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${path}`,
         {
           headers: {
@@ -70,9 +99,14 @@ export class GitHubCodeProcessor {
         }
       );
 
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.status}`);
+      }
+
+      const data = await response.json();
       const files: GitHubFile[] = [];
 
-      for (const item of response.data) {
+      for (const item of data) {
         if (item.type === "file") {
           // Skip binary files and large files
           if (this.shouldProcessFile(item)) {
@@ -181,15 +215,19 @@ export class GitHubCodeProcessor {
   async fetchFileContent(file: GitHubFile): Promise<string> {
     try {
       if (file.download_url) {
-        const response = await axios.get(file.download_url, {
+        const response = await fetch(file.download_url, {
           headers: {
             Authorization: `token ${this.accessToken}`,
             "User-Agent": "GitHub-Code-Processor",
           },
         });
 
+        if (!response.ok) {
+          throw new Error(`Failed to fetch file: ${response.status}`);
+        }
+
         // Ensure we return a string
-        const data = response.data;
+        const data = await response.text();
         if (typeof data === "string") {
           return data;
         } else if (typeof data === "object") {
@@ -286,10 +324,7 @@ export class GitHubCodeProcessor {
       .replace(/[^a-z0-9_]/g, "_");
 
     try {
-      // Check if required environment variables are set
-      if (!process.env.HUGGINGFACE_API_KEY) {
-        throw new Error("HUGGINGFACE_API_KEY environment variable is not set");
-      }
+      // Chroma embeddings don't require API keys - they run locally
 
       if (!process.env.QDRANT_URL && !process.env.QDRANT_API_KEY) {
         console.warn(
@@ -306,70 +341,111 @@ export class GitHubCodeProcessor {
         throw new Error(`Failed to connect to Qdrant: ${error.message}`);
       }
 
-      // Create collection if it doesn't exist
+      // Handle collection creation/cleanup more robustly
       try {
+        // First, try to delete existing collection to avoid conflicts
+        try {
+          await qdrantClient.deleteCollection(collectionName);
+          console.log(`🗑️ Deleted existing collection: ${collectionName}`);
+        } catch (deleteError: any) {
+          // Collection might not exist, that's fine
+          console.log(`Collection ${collectionName} doesn't exist yet`);
+        }
+
+        // Create fresh collection
         await qdrantClient.createCollection(collectionName, {
           vectors: {
             size: 384,
             distance: "Cosine",
-          }, // Size for sentence-transformers/all-MiniLM-L6-v2
+          }, // Size for Chroma embeddings
         });
-        console.log(`Created collection: ${collectionName}`);
+        console.log(`✅ Created collection: ${collectionName}`);
       } catch (error: any) {
-        if (!error.message.includes("already exists")) {
-          throw error;
-        }
-        console.log(`Collection ${collectionName} already exists`);
+        console.error(`❌ Collection creation failed: ${error.message}`);
+        throw new Error(`Failed to create collection: ${error.message}`);
       }
 
-      // Process chunks in batches
-      const batchSize = 5; // Reduced batch size for better reliability
+      // Process chunks in batches with proper error handling
+      const batchSize = 5;
+      let successfulBatches = 0;
+      let totalBatches = Math.ceil(chunks.length / batchSize);
+
+      console.log(
+        `🚀 Processing ${chunks.length} chunks in ${totalBatches} batches`
+      );
+
       for (let i = 0; i < chunks.length; i += batchSize) {
         const batch = chunks.slice(i, i + batchSize);
+        const batchNumber = Math.floor(i / batchSize) + 1;
 
         try {
-          // Generate embeddings for batch
           console.log(
-            `Generating embeddings for batch ${
-              Math.floor(i / batchSize) + 1
-            }/${Math.ceil(chunks.length / batchSize)}`
+            `⚡ Batch ${batchNumber}/${totalBatches}: Processing ${batch.length} chunks`
           );
+
           const texts = batch.map((chunk) => chunk.content);
-          const embeddings_result = await embeddings.embedDocuments(texts);
+          const embeddings_result = await generateEmbeddings(texts);
 
-          // Prepare points for Qdrant
-          const points = batch.map((chunk, index) => ({
-            id: `${this.owner}_${this.repo}_${chunk.metadata.filePath}_${chunk.metadata.chunkIndex}`.replace(
-              /[^a-zA-Z0-9_]/g,
-              "_"
-            ),
-            vector: embeddings_result[index],
-            payload: {
-              content: chunk.content,
-              ...chunk.metadata,
-              processedAt: new Date().toISOString(),
-            },
-          }));
+          console.log(
+            `✅ Generated ${embeddings_result.length} embeddings for batch ${batchNumber}`
+          );
 
-          // Upsert points to Qdrant
+          // Prepare points for Qdrant with proper ID generation (Qdrant needs integer IDs)
+          const points = batch.map((chunk, index) => {
+            // Generate a unique integer ID based on content hash
+            const contentHash = chunk.content.split("").reduce((a, b) => {
+              a = (a << 5) - a + b.charCodeAt(0);
+              return a & a;
+            }, 0);
+            const uniqueId = Math.abs(contentHash) + Date.now() + index;
+
+            return {
+              id: uniqueId,
+              vector: embeddings_result[index],
+              payload: {
+                content: chunk.content,
+                filePath: chunk.metadata.filePath,
+                fileName: chunk.metadata.fileName,
+                fileType: chunk.metadata.fileType,
+                chunkIndex: chunk.metadata.chunkIndex,
+                repository: chunk.metadata.repository,
+                owner: chunk.metadata.owner,
+                processedAt: new Date().toISOString(),
+              },
+            };
+          });
+
+          console.log(`🔍 Storing ${points.length} points in Qdrant...`);
+
+          // Store in Qdrant with proper error handling
           await qdrantClient.upsert(collectionName, {
             wait: true,
             points: points,
           });
 
           console.log(
-            `✅ Processed batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(
-              chunks.length / batchSize
-            )}`
+            `✅ Successfully stored ${points.length} points in Qdrant`
+          );
+
+          successfulBatches++;
+          console.log(
+            `✅ Batch ${batchNumber}/${totalBatches} completed successfully`
           );
         } catch (batchError: any) {
-          console.error(
-            `❌ Error processing batch ${Math.floor(i / batchSize) + 1}:`,
-            batchError.message
-          );
-          // Continue with next batch instead of failing completely
+          console.error(`❌ Batch ${batchNumber} failed:`, batchError.message);
+          console.error(`❌ Full error:`, batchError);
+          // Continue with next batch
           continue;
         }
+      }
+
+      // Report actual results
+      console.log(
+        `📊 Final Results: ${successfulBatches}/${totalBatches} batches successful`
+      );
+
+      if (successfulBatches === 0) {
+        throw new Error("All batches failed - no data was stored");
       }
 
       console.log(
